@@ -2,50 +2,53 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
-	"errors"
-	"io"
-	"net/http"
-	"encoding/json"
+	"time"
+
+	"github.com/clong0112/pokedex/internal/apis"
+	"github.com/clong0112/pokedex/internal/pokecache"
 )
 
 var ErrExit = errors.New("exit")
 
-var commands map[string]cliCommand
+var commands map[string]apis.CliCommand
 
 func init() {
-	commands = make(map[string]cliCommand)
+	
+	commands = make(map[string]apis.CliCommand)
 
-	commands["help"] = cliCommand{
-		name: "help",
-		description: "Displays a help message",
-		callback: commandHelp,
+	commands["help"] = apis.CliCommand{
+		Name: "help",
+		Description: "Displays a help message",
+		Callback: commandHelp,
 	}
 
-	commands["exit"] = cliCommand{
-		name:        "exit",
-		description: "Exit the Pokedex",
-		callback: commandExit,
+	commands["exit"] = apis.CliCommand{
+		Name:        "exit",
+		Description: "Exit the Pokedex",
+		Callback: commandExit,
 	}
 
-	commands["map"] = cliCommand{
-		name: "map",
-		description: "Go forward to the next 20 areas",
-		callback: commandMap,
+	commands["map"] = apis.CliCommand{
+		Name: "map",
+		Description: "Go forward to the next 20 areas",
+		Callback: commandMap,
 	}
 	
-	commands["mapb"] = cliCommand{
-		name: "mapb",
-		description: "Go back to the previous 20 areas",
-		callback: commandMapb,
+	commands["mapb"] = apis.CliCommand{
+		Name: "mapb",
+		Description: "Go back to the previous 20 areas",
+		Callback: commandMapb,
 	}
 }
 
 func main() {
 	scanner := bufio.NewScanner(os.Stdin)
-	c := &Config{}
+	c := &apis.Config{Cache: pokecache.NewCache(time.Second * 5)}
+	
 
 	for {
 		fmt.Print("Pokedex > ")
@@ -57,7 +60,7 @@ func main() {
 
 		if !ok { fmt.Println("Unknown command"); continue }
 
-		if err := cmd.callback(c); err != nil { fmt.Println("Error:", err) }
+		if err := cmd.Callback(c); err != nil { fmt.Println("Error:", err) }
 	}
 }
 
@@ -65,7 +68,7 @@ func cleanInput (text string) []string {
 	return strings.Fields(strings.ToLower(text))
 }
 
-func commandMapb(c *Config) error {
+func commandMapb(c *apis.Config) error {
 	url := "https://pokeapi.co/api/v2/location-area/"
 	if c.Previous != "" {
 		url = c.Previous
@@ -73,7 +76,7 @@ func commandMapb(c *Config) error {
 		fmt.Println("You're on the first page!")
 	}
 
-	resp, err := GetLocationArea(url)
+	resp, err := apis.GetLocationArea(url, c)
 	if err != nil { return err }
 
 	for _, r := range resp.Results {
@@ -95,13 +98,13 @@ func commandMapb(c *Config) error {
 	return nil
 }
 
-func commandMap(c *Config) error {
+func commandMap(c *apis.Config) error {
 	url := "https://pokeapi.co/api/v2/location-area/"
 	if c.Next != "" {
 		url = c.Next
 	}
 
-	resp, err := GetLocationArea(url)
+	resp, err := apis.GetLocationArea(url, c)
 	if err != nil { return err }
 
 	for _, r := range resp.Results {
@@ -122,69 +125,20 @@ func commandMap(c *Config) error {
 	return nil
 }
 
-func commandExit(c *Config) error {
+func commandExit(c *apis.Config) error {
     fmt.Println("Closing the Pokedex... Goodbye!")
     os.Exit(0)
     return nil
 }
 
 
-func commandHelp(c *Config) error {
+func commandHelp(c *apis.Config) error {
 	fmt.Printf(`Welcome to the Pokedex!
 Usage:
 
 `)
 	for k, v := range commands {
-		fmt.Printf("%v: %v\n", k, v.description)
+		fmt.Printf("%v: %v\n", k, v.Description)
 	}
 	return nil
-}
-	
-type cliCommand struct {
-	name string
-	description string
-	callback func(*Config) error
-}
-
-type Config struct {
-	Next string
-	Previous string
-}
-
-type LocationAreas struct {
-		Next *string 
-		Previous *string			
-		Results []NameUrl
-}
-
-type NameUrl struct {
-		Name string
-		URL string
-}
-
-func GetLocationArea(url string) (LocationAreas, error) {
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return LocationAreas{}, err
-	}
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return LocationAreas{}, err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return LocationAreas{}, err
-	}
-
-	var data LocationAreas
-	err = json.Unmarshal(body, &data)
-	if err != nil {
-		return LocationAreas{}, err
-	}
-
-	return data, nil
 }
